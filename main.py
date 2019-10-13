@@ -125,36 +125,40 @@ def load_img(file_name):
     return image
 
 
-def rotate_body(piece, rotation):
-    """Return rotated piece by a degree of rotation"""
+def rotate_piece(piece, degree):
+    """Return rotated piece by a degree"""
     new_x = piece[0]
     new_y = piece[1]
-    if rotation == 90:
+    if degree == 90:
         new_x = -piece[1]
         new_y = piece[0]
-    elif rotation == 180:
+    elif degree == 180:
         new_x = -piece[0]
         new_y = -piece[1]
-    elif rotation == 270:
+    elif degree == 270:
         new_x = piece[1]
         new_y = -piece[0]
     return new_x, new_y
 
 
 def next_move_available(body, game_blocks):
+    """Return true if body will not collide with other blocks, if its y += 1"""
     def next_move(pos): return int(pos[0]), int(pos[1]) + 1
+    positions = [b.pos for b in game_blocks]
 
     for piece in body:
-        if next_move(piece) in [b.pos for b in game_blocks]:
+        # If positions match
+        if next_move(piece) in positions:
             return False
 
-    max_y_piece = max(body, key=lambda pos: pos[1])
-    if next_move(max_y_piece)[1] < board_size_y:
+    max_y_piece = max(body, key=lambda pos: pos[1])[1]
+    if max_y_piece+1 < board_size_y:
         return True
     return False
 
 
 class BasicFigure:
+    """Base of FallingFigure, also a game block"""
     def __init__(self, x, y, image):
         self.x = int(x)
         self.y = int(y)
@@ -175,41 +179,52 @@ class FallingFigure(BasicFigure):
         self.rotation = random.randrange(4) * 90
         self.preview_image = load_img('basic_shape_preview.png')
         self.body = self.translate_shape()
+        self.rect = []
 
     def move(self, right=False, left=False):
+        """Move the figure, called every frame"""
         move = int(right) - int(left)
+        self.x += move
+        self.body = self.translate_shape()
+
         min_x = min(self.body, key=lambda pos: pos[0])[0]
         max_x = max(self.body, key=lambda pos: pos[0])[0]
-        if 0 <= min_x + move and max_x + move < board_size_x:
-            self.x += move
+
+        self.x = max(self.x, self.x-min_x)                       # Left barrier
+        self.x = min(self.x, self.x - (max_x-board_size_x + 1))  # Right barrier
 
         self.y += 1 / self.speed
 
         self.body = self.translate_shape()
 
     def rotate(self, value, game_blocks):
+        """Rotate and object by a degree, check if doesn't collide with other blocks"""
         new_rotation = self.rotation + value
         new_rotation %= 360
 
         for piece in self.body:
-            if rotate_body(piece, new_rotation) in [b.pos for b in game_blocks]:
+            if rotate_piece(piece, new_rotation) in [b.pos for b in game_blocks]:
                 return
 
         self.rotation = new_rotation
         self.body = self.translate_shape()
 
     def translate_shape(self):
+        """Return positions of body pieces, accordingly to figure's position and rotation"""
         new_body = []
         for piece in self.shape:
-            new_x, new_y = rotate_body(piece, self.rotation)
+            new_x, new_y = rotate_piece(piece, self.rotation)
             new_body.append((new_x + self.x, new_y + self.y))
+
         return new_body
 
     def draw(self, surface):
+        """Draw an object to the screen"""
         for piece_coordinates in self.body:
             surface.blit(self.image, board_pos(piece_coordinates))
 
     def draw_preview(self, surface, game_blocks):
+        """Draw predicted position of the figure"""
         to_go = 0
 
         body = self.body.copy()
@@ -217,13 +232,13 @@ class FallingFigure(BasicFigure):
             to_go += 1
             for i, piece in enumerate(body):
                 body[i] = int(piece[0]), int(piece[1])+1
-                print(body[i])
 
         for piece in body:
             surface.blit(self.preview_image, board_pos(piece))
 
 
 def draw_window(surface, game_blocks, falling_fig):
+    """Draw objects to window"""
     surface.fill(black)
     for block in game_blocks:
         block.draw(surface)
@@ -235,9 +250,10 @@ def draw_window(surface, game_blocks, falling_fig):
 
 
 def main():
+    """Main function, also a game loop"""
     clock = pygame.time.Clock()
 
-    ff = FallingFigure()  # Stands for falling_figure
+    ff = FallingFigure()  # Stands for falling figure
     game_blocks = []
 
     score = 0
@@ -252,28 +268,32 @@ def main():
                 quit()
 
             if e.type == pygame.KEYDOWN:
+                # Check for move
                 if e.key == pygame.K_RIGHT or e.key == pygame.K_d:
                     right = True
                 if e.key == pygame.K_LEFT or e.key == pygame.K_a:
                     left = True
 
+                # Check for rotation
                 if e.key == pygame.K_w:
                     ff.rotate(90, game_blocks)
                 if e.key == pygame.K_s:
                     ff.rotate(-90, game_blocks)
 
+                # Check for apply block
                 if e.key == pygame.K_SPACE:
-                    print('HEJ!')
                     while next_move_available(ff.body, game_blocks):
                         ff.move()
 
         ff.move(right, left)
+
+        # On collision
         if not next_move_available(ff.body, game_blocks):
             for piece in ff.body:
                 game_blocks.append(BasicFigure(piece[0], piece[1], ff.image))
             ff = FallingFigure()
 
-        count_removed_lines = 0
+        # Iterate over all levels on the board
         for y_level in range(board_size_y):
             blocks_to_remove = []
             for block in game_blocks:
@@ -281,12 +301,13 @@ def main():
                 if block.y == y_level:
                     blocks_to_remove.append(block)
 
+            # If line is full
             if len(blocks_to_remove) == board_size_x:
                 # Remove blocks
-                count_removed_lines += 1
                 for block in blocks_to_remove:
                     game_blocks.remove(block)
 
+                # Move down the rest of the blocks
                 for block in game_blocks:
                     if block.y < y_level:
                         block.y += 1
