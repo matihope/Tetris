@@ -2,7 +2,6 @@ import pygame
 import time
 import random
 import os
-import am
 
 pygame.init()
 
@@ -10,23 +9,19 @@ black = (50, 50, 50)
 white = (255, 255, 255)
 
 tile_size = 30
+board_size_x, board_size_y = 10, 24
 
 FPS = 60
 
-WIN_WIDTH = 10*tile_size
-WIN_HEIGHT = 24*tile_size + 50
+WIN_WIDTH = board_size_x * tile_size
+WIN_HEIGHT = board_size_y * tile_size + 50
 win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
-bar = pygame.Rect((0, 0, WIN_WIDTH, WIN_HEIGHT-tile_size*24))
+bar = pygame.Rect((0, 0, WIN_WIDTH, WIN_HEIGHT-tile_size * board_size_y))
 
 """
 0:
-    ##
-    ##
-    
-    center:
-        #   #
-          #
-        #   #
+center>##
+       ##
 1:
     # # # #
         ^-center
@@ -38,6 +33,18 @@ center>##
 center>##
        #
        #
+4:
+    ##<center
+     #
+     #
+5:
+        #
+center>##
+       #
+6:
+    #
+    ##<center
+     # 
 """
 shapes = (
     (
@@ -67,17 +74,35 @@ shapes = (
         (0, 1),
         (0, 2)
     ),
+    (
+        (-1, 0),
+        (0, 0),
+        (0, -1),
+        (0, -2)
+    ),
+    (
+        (1, -1),
+        (1, 0),
+        (0, 0),
+        (0, 1)
+    ),
+    (
+        (-1, -1),
+        (-1, 0),
+        (0, 0),
+        (0, 1)
+    )
 )
 
 
 def board_x(x):
     """Return x position on board"""
-    return (WIN_WIDTH - 10*tile_size) + int(x)*tile_size
+    return (WIN_WIDTH - board_size_x*tile_size) + int(x)*tile_size
 
 
 def board_y(y):
     """Return y position on board"""
-    return (WIN_HEIGHT - 24*tile_size) + int(y)*tile_size
+    return (WIN_HEIGHT - board_size_y*tile_size) + int(y)*tile_size
 
 
 def load_img(file_name):
@@ -95,25 +120,40 @@ def load_img(file_name):
     return image
 
 
+def rotate_body(piece, rotation):
+    """Return rotated piece by a degree of rotation"""
+    new_x = piece[0]
+    new_y = piece[1]
+    if rotation == 90:
+        new_x = -piece[1]
+        new_y = piece[0]
+    elif rotation == 180:
+        new_x = -piece[0]
+        new_y = -piece[1]
+    elif rotation == 270:
+        new_x = piece[1]
+        new_y = -piece[0]
+    return new_x, new_y
+
+
 class BasicFigure:
     def __init__(self, x, y, image):
         self.x = x
         self.y = y
+        self.pos = (x, y)
         self.image = image
 
     def draw(self, surface):
-        surface.blit(self.image, (board_x(self.x), board_y(self.y)))
+        surface.blit(self.image, self.pos)
 
 
 class FallingFigure(BasicFigure):
-    def __init__(self, x, y):
-        shape_index = random.randint(0, len(shapes)-1)
+    def __init__(self, x, y, speed):
+        shape_index = random.randrange(len(shapes))
+        self.shape = shapes[shape_index]
+        super().__init__(x, y, load_img(f"basic_shape{shape_index}.png"))
 
-        self.shape = shapes[2]
-        super().__init__(x, y, load_img(f"basic_shape{2}.png"))  # Later shape_index instead of 2
-
-        self.y_vel = 0
-        self.speed = 0
+        self.speed = speed/FPS
         self.rotation = random.randint(0, 3) * 90
         self.body = self.translate_shape()
 
@@ -121,48 +161,52 @@ class FallingFigure(BasicFigure):
         move = int(right) - int(left)
         min_x = min(self.body, key=lambda x: x[0])[0]
         max_x = max(self.body, key=lambda x: x[0])[0]
-        if 0 < min_x + move and \
-                max_x + tile_size*move < WIN_WIDTH:
+        if 0 < min_x + move and max_x + tile_size*move < board_x(board_size_x):
             self.x += move
 
-        self.y += 2/FPS
+        self.y += self.speed
 
         self.body = self.translate_shape()
 
-    def rotate(self, value):
-        self.rotation += value if value > 0 else 360-value
-        self.rotation %= 360
+    def rotate(self, value, game_blocks):
+        new_rotation = self.rotation + value
+        new_rotation %= 360
+
+        for piece in self.body:
+            if rotate_body(piece, new_rotation) in [b.pos for b in game_blocks]:
+                return
+
+        self.rotation = new_rotation
         self.body = self.translate_shape()
 
     def translate_shape(self):
         new_body = []
-
         for piece in self.shape:
-
-            new_x = piece[0]
-            new_y = piece[1]
-            if self.rotation == 90:
-                new_x = piece[1]
-                new_y = piece[0] if piece[0] > 0 else -piece[0]
-            elif self.rotation == 180:
-                new_x = -piece[0]
-                new_y = -piece[1]
-            elif self.rotation == 270:
-                new_x = piece[1]
-                new_y = piece[0] if piece[0] < 0 else -piece[0]
-
+            new_x, new_y = rotate_body(piece, self.rotation)
             new_body.append((board_x(new_x + self.x), board_y(new_y + self.y)))
         return new_body
+
+    def next_move_available(self, game_blocks):
+        for piece in self.body:
+            piece_pos_in_next_move = (piece[0], piece[1] + tile_size)
+            if piece_pos_in_next_move in [b.pos for b in game_blocks]:
+                return False
+
+        max_y = max(self.body, key=lambda x: x[1])[1]
+        if max_y + tile_size < board_y(board_size_y):
+            return True
+        return False
 
     def draw(self, surface):
         for piece_coordinates in self.body:
             surface.blit(self.image, piece_coordinates)
 
 
-def draw_window(win_surface, shape):
+def draw_window(win_surface, blocks, falling_fig):
     win_surface.fill(black)
-
-    shape.draw(win)
+    for block in blocks:
+        block.draw(win_surface)
+    falling_fig.draw(win_surface)
 
     pygame.draw.rect(win_surface, white, bar)
 
@@ -170,7 +214,10 @@ def draw_window(win_surface, shape):
 def main():
     clock = pygame.time.Clock()
 
-    shape1 = FallingFigure(5, 0)
+    falling_figure = FallingFigure(5, 3, 5)
+    game_blocks = []
+
+    score = 0
 
     run = True
     while run:
@@ -187,13 +234,17 @@ def main():
                     left = True
                 
                 if e.key == pygame.K_w:
-                    shape1.rotate(90)
+                    falling_figure.rotate(90, game_blocks)
                 if e.key == pygame.K_s:
-                    shape1.rotate(-90)
+                    falling_figure.rotate(-90, game_blocks)
 
-        shape1.move(right, left)
+        falling_figure.move(right, left)
+        if not falling_figure.next_move_available(game_blocks):
+            for piece in falling_figure.body:
+                game_blocks.append(BasicFigure(piece[0], piece[1], falling_figure.image))
+            falling_figure = FallingFigure(5, 0, 5)
 
-        draw_window(win, shape1)
+        draw_window(win, game_blocks, falling_figure)
         pygame.display.update()
 
 
