@@ -1,12 +1,13 @@
 import pygame
-import time
 import random
 import os
 
+pygame.font.init()
 pygame.init()
 
 black = (50, 50, 50)
 white = (255, 255, 255)
+bar_bg = (200, 200, 200)
 
 tile_size = 30
 board_size_x, board_size_y = 10, 24
@@ -17,6 +18,8 @@ WIN_WIDTH = board_size_x * tile_size
 WIN_HEIGHT = board_size_y * tile_size + 50
 win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
 bar = pygame.Rect((0, 0, WIN_WIDTH, WIN_HEIGHT - tile_size * board_size_y))
+
+STAT_FONT = pygame.font.SysFont("comicsans", 24)
 
 """
 0:
@@ -75,7 +78,7 @@ shapes = (
         (0, 2)
     ),
     (
-        (-1, 0),
+        (1, 0),
         (0, 0),
         (0, -1),
         (0, -2)
@@ -157,6 +160,31 @@ def next_move_available(body, game_blocks):
     return False
 
 
+def get_score(lines_cleared, level):
+    """Return score for clearing lines"""
+    if lines_cleared == 1:
+        return 40 * (level + 1)
+    elif lines_cleared == 2:
+        return 100 * (level + 1)
+    elif lines_cleared == 3:
+        return 300 * (level + 1)
+    elif lines_cleared >= 4:
+        return 1200 * (level + 1)
+    return 0
+
+
+def get_speed(level):
+    if 0 <= level <= 8:
+        return 48 - 5*level
+    elif level == 9:
+        return 6
+    elif 10 <= level <= 18:
+        return 5 - ((level-10)//3)
+    elif 19 <= level <= 28:
+        return 2
+    return 1
+
+
 class BasicFigure:
     """Base of FallingFigure, also a game block"""
     def __init__(self, x, y, image):
@@ -179,7 +207,7 @@ class FallingFigure(BasicFigure):
         self.rotation = random.randrange(4) * 90
         self.preview_image = load_img('basic_shape_preview.png')
         self.body = self.translate_shape()
-        self.rect = []
+        self.rect = ()
 
     def move(self, right=False, left=False):
         """Move the figure, called every frame"""
@@ -225,11 +253,8 @@ class FallingFigure(BasicFigure):
 
     def draw_preview(self, surface, game_blocks):
         """Draw predicted position of the figure"""
-        to_go = 0
-
         body = self.body.copy()
         while next_move_available(body, game_blocks):
-            to_go += 1
             for i, piece in enumerate(body):
                 body[i] = int(piece[0]), int(piece[1])+1
 
@@ -237,8 +262,8 @@ class FallingFigure(BasicFigure):
             surface.blit(self.preview_image, board_pos(piece))
 
 
-def draw_window(surface, game_blocks, falling_fig):
-    """Draw objects to window"""
+def draw_window(surface, game_blocks, falling_fig, score_text):
+    """Draw objects to the window"""
     surface.fill(black)
     for block in game_blocks:
         block.draw(surface)
@@ -246,7 +271,13 @@ def draw_window(surface, game_blocks, falling_fig):
     falling_fig.draw_preview(surface, game_blocks)
     falling_fig.draw(surface)
 
-    pygame.draw.rect(surface, white, bar)
+    # Drawing bar and score
+    stats = STAT_FONT.render(score_text, 1, black)
+    stats_x = WIN_WIDTH/2-stats.get_width()/2
+    stats_y = ((WIN_HEIGHT - (board_size_y * tile_size)) / 2) - stats.get_height()/2
+
+    pygame.draw.rect(surface, bar_bg, bar)
+    surface.blit(stats, (stats_x, stats_y))
 
 
 def main():
@@ -257,6 +288,8 @@ def main():
     game_blocks = []
 
     score = 0
+    game_level = 0
+    lines_cleared_total = 0 if game_level == 0 else game_level*10
 
     run = True
     while run:
@@ -265,7 +298,7 @@ def main():
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 pygame.quit()
-                quit()
+                quit(print(score))
 
             if e.type == pygame.KEYDOWN:
                 # Check for move
@@ -291,9 +324,11 @@ def main():
         if not next_move_available(ff.body, game_blocks):
             for piece in ff.body:
                 game_blocks.append(BasicFigure(piece[0], piece[1], ff.image))
-            ff = FallingFigure()
+            ff = FallingFigure(speed=get_speed(game_level))
+            score += 10
 
         # Iterate over all levels on the board
+        lines_cleared = 0
         for y_level in range(board_size_y):
             blocks_to_remove = []
             for block in game_blocks:
@@ -301,8 +336,13 @@ def main():
                 if block.y == y_level:
                     blocks_to_remove.append(block)
 
+                if block.y == 0:
+                    run = False
+
             # If line is full
             if len(blocks_to_remove) == board_size_x:
+                lines_cleared += 1
+
                 # Remove blocks
                 for block in blocks_to_remove:
                     game_blocks.remove(block)
@@ -313,8 +353,16 @@ def main():
                         block.y += 1
                         block.pos = (block.x, block.y)
 
-        draw_window(win, game_blocks, ff)
+        lines_cleared_total += lines_cleared
+        game_level = lines_cleared_total // 10
+        score += get_score(lines_cleared, game_level)
+
+        text = f"Score: {score} | Level: {game_level} | Lines: {lines_cleared}"
+        draw_window(win, game_blocks, ff, score_text=text)
+
         pygame.display.update()
+
+    print(f'Score: {score}')
 
 
 if __name__ == '__main__':
